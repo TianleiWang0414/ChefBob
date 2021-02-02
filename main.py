@@ -1,13 +1,14 @@
 from random import randint
-
+import os
+from dotenv import load_dotenv
 import discord
 import utils
 from discord.ext import commands
 
 intents = discord.Intents.default()
 intents.members = True
-
-TOKEN = 'Nzk2MjA4NDE0MTM2NDY3NDc2.X_Uk3g.tsWzqUTUejSYfhHv3C9ODKnMBAc'
+load_dotenv()
+TOKEN = os.getenv('TOKEN')
 bot = commands.Bot(command_prefix="+", intents=intents)
 
 
