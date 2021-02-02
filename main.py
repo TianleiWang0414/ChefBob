@@ -16,7 +16,7 @@ bot = commands.Bot(command_prefix="+", intents=intents)
 
 
 #bot commands
-@bot.command()
+@bot.command(name="唱")
 async def sing(ctx):
     print("sing command invoked")
     await ctx.send("来左边儿 跟我一起画个龙~\n在你右边儿 画一道彩虹~")
@@ -39,25 +39,32 @@ async def clear(ctx, num):
     await ctx.send("Chef老B 清档成功 此消息5秒后自我销毁", delete_after=5)
 
 
-@bot.command(name="change")
+@bot.command(name="换区")
 async def move(ctx, *arg):
 
     goto = utils.getChannelByName(ctx, " ".join(arg))
     if goto is None:
         print("Channel not found")
+        await ctx.send("未能找到频道", delete_after=5)
         return
-    members = ctx.message.author.voice.channel.members
-    channel = ctx.message.author.voice.channel
-    if channel.name!=goto.name:
+    try:
+        members = ctx.message.author.voice.channel.members
+        channel = ctx.message.author.voice.channel
+    except AttributeError:
+        await ctx.send("X 未在语音频道", delete_after=5)
+        return
+    if (channel.name!=goto.name) and type(channel) is discord.VoiceChannel :
         for x in members:
             await x.move_to(goto)
-            await ctx.send("转移成功", delete_after=5)
+        await ctx.send("转移成功", delete_after=5)
     else:
         await ctx.send("原地传送最为致命", delete_after=5)
-@bot.command(pass_cibtext=True,aliases=['move'])
+@bot.command(pass_cibtext=True,aliases=['move','change'])
 async def ch(ctx, *arg):
     await move(ctx,*arg)
-@bot.command(name="roll")
+
+
+@bot.command(name="骰子")
 async def rng(ctx,arg):
     number = 0
     print("roll invoked")
@@ -71,7 +78,9 @@ async def rng(ctx,arg):
     string="<@"+str(member.id)+"> 点数："+ str(number)
 
     await ctx.send(string)
-
+@bot.command(pass_cibtext=True,aliases=['rng','roll'])
+async def r(ctx, arg):
+    await rng(ctx,arg)
 #bot events
 @bot.event
 async def on_message(message):
@@ -85,7 +94,8 @@ async def on_message(message):
 async def on_command_error(ctx, error):
     if isinstance(error, discord.ext.commands.errors.CommandNotFound):
         await ctx.send("Bob挠了挠头.jpg")
-
+    else:
+        print(error)
 @bot.event
 async def on_ready():
     print("**{0.user.name}** 踩着七彩祥云来去你狗命了".format(bot))
