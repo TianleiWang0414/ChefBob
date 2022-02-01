@@ -7,24 +7,26 @@ from discord.ext import commands
 import datetime as dt
 import json
 import aiofiles
-import asyncio
+import multiprocessing
 
 intents = discord.Intents.default()
 intents.members = True
 load_dotenv()
+lock = multiprocessing.Lock()
 TOKEN = os.getenv('TOKEN')
 bot = commands.Bot(command_prefix="+", intents=intents)
-job_list = ['gbb','dnc','rep','drk','sch','whm','sge','rdm','war','sam','drg','mok','smn','nin',
-            'brd','pld','mch','blm','ast']
+dps_role = []
+job_list = ['gbb', 'dnc', 'rep', 'drk', 'sch', 'whm', 'sge', 'rdm', 'war', 'sam', 'drg', 'mok', 'smn', 'nin',
+            'brd', 'pld', 'mch', 'blm', 'ast']
 
 
-
-#bot commands
+# bot commands
 @bot.command(name="event")
 async def create_event(ctx, title, description, time, limit_people):
+    lock.acquire()
     channel = ctx.message.channel.name
     if channel != 'events':
-        await ctx.send(':no_entry:Please use event command under **events** channel.',delete_after=5)
+        await ctx.send(':no_entry:Please use event command under **events** channel.', delete_after=5)
         return
     try:
         date_time_obj = dt.datetime.strptime(time, '%Y/%m/%d')
@@ -34,40 +36,44 @@ async def create_event(ctx, title, description, time, limit_people):
         return
     async with aiofiles.open('event.json') as f:
         contents = await f.read()
-        #print(contents)
+        # print(contents)
     json_file = json.loads(contents)
 
-    event =  utils.form_event(title,description,time)
+    event = utils.form_event(title, description, time)
     message = await ctx.send(event)
 
+    json_file[(message.id)] = {'members': [], 'role': [], 'title': title, 'desc': description, 'time': time,
+                               'limit': limit_people}
 
-
-
-
-    json_file[(message.id)] = {'members': [],'role':[],'title':title,'desc':description,'time':time, 'limit':limit_people}
-
-    async with aiofiles.open('event.json',mode= 'w') as f:
+    async with aiofiles.open('event.json', mode='w') as f:
         str = json.dumps(json_file)
         print(str)
         await f.write(str)
     print('event invoked')
-def role_string(member:list,role:list)->str:
+    lock.release()
+
+
+def role_string(member: list, role: list) -> str:
     role_str = ""
 
     for i in range(len(member)):
         emoji = discord.utils.get(bot.emojis, name=role[i])
-        role_str +="%s %s\n" %(member[i],emoji)
+        role_str += "%s %s\n" % (member[i], emoji)
     return role_str
+
+
 @bot.event
-async def on_reaction_add(reaction,user):
+async def on_reaction_add(reaction, user):
+    lock.acquire()
     channel = reaction.message.channel
-    message =  reaction.message
-    emoji =reaction.emoji
+    message = reaction.message
+    emoji = reaction.emoji
     print(message)
     async with aiofiles.open('event.json') as f:
         contents = await f.read()
     json_file = json.loads(contents)
-    #print(type(message.id))
+    # print(type(message.id))
+
     if user.name not in json_file[str(message.id)]['members'] and \
             len(json_file[str(message.id)]['members']) < int(json_file[str(message.id)]['limit']):
         json_file[str(message.id)]['members'].append(user.name)
@@ -82,23 +88,27 @@ async def on_reaction_add(reaction,user):
                                    json_file[str(message.id)]['desc'],
                                    json_file[str(message.id)]['time']) + \
                   role_string(json_file[str(message.id)]['members'],
-                            json_file[str(message.id)]['role'])
-        await message.edit(content = new_str)
+                              json_file[str(message.id)]['role'])
+        await message.edit(content=new_str)
     else:
-        error = '<@%s>  :no_entry:\nPossible cause:\n1. Party full\n2. Already in this party'%(user.id)
-        await message.channel.send(error,delete_after=15)
+        error = '<@%s>  :no_entry:\nPossible cause:\n1. Party full\n2. Already in this party' % (user.id)
+        await message.channel.send(error, delete_after=15)
     print(json_file)
-    async with aiofiles.open('event.json',mode= 'w') as f:
+    async with aiofiles.open('event.json', mode='w') as f:
         new_str = json.dumps(json_file)
         await f.write(new_str)
+    lock.release()
+
+
 @bot.event
-async def on_reaction_remove(reaction,user):
+async def on_reaction_remove(reaction, user):
+    lock.acquire()
     channel = reaction.message.channel
     message = reaction.message
     async with aiofiles.open('event.json') as f:
         contents = await f.read()
     json_file = json.loads(contents)
-    #print(type(message.id))
+    # print(type(message.id))
     try:
 
         index = json_file[str(message.id)]['members'].index(user.name)
@@ -115,9 +125,12 @@ async def on_reaction_remove(reaction,user):
     except:
         pass
     print(json_file)
-    async with aiofiles.open('event.json',mode= 'w') as f:
+    async with aiofiles.open('event.json', mode='w') as f:
         new_str = json.dumps(json_file)
         await f.write(new_str)
+    lock.release()
+
+
 @bot.command(name="唱")
 async def sing(ctx):
     print("sing command invoked")
@@ -143,7 +156,6 @@ async def clear(ctx, num):
 
 @bot.command(name="换区")
 async def move(ctx, *arg):
-
     goto = utils.getChannelByName(ctx, " ".join(arg))
     if goto is None:
         print("Channel not found")
@@ -155,35 +167,41 @@ async def move(ctx, *arg):
     except AttributeError:
         await ctx.send("X 未在语音频道", delete_after=5)
         return
-    if (channel.name!=goto.name) and type(channel) is discord.VoiceChannel :
+    if (channel.name != goto.name) and type(channel) is discord.VoiceChannel:
         for x in members:
             await x.move_to(goto)
         await ctx.send("转移成功", delete_after=5)
     else:
         await ctx.send("原地传送最为致命", delete_after=5)
-@bot.command(pass_cibtext=True,aliases=['move','change'])
+
+
+@bot.command(pass_cibtext=True, aliases=['move', 'change'])
 async def ch(ctx, *arg):
-    await move(ctx,*arg)
+    await move(ctx, *arg)
 
 
 @bot.command(name="骰子")
-async def rng(ctx,arg):
+async def rng(ctx, arg):
     number = 0
     print("roll invoked")
     try:
-        number = int(arg)+1
+        number = int(arg) + 1
     except ValueError:
         await ctx.send("老B不明白你在说什么")
         return
     member = ctx.message.author
-    number= randint(1,number)
-    string="<@"+str(member.id)+"> 点数："+ str(number)
+    number = randint(1, number)
+    string = "<@" + str(member.id) + "> 点数：" + str(number)
 
     await ctx.send(string)
-@bot.command(pass_cibtext=True,aliases=['rng','roll'])
+
+
+@bot.command(pass_cibtext=True, aliases=['rng', 'roll'])
 async def r(ctx, arg):
-    await rng(ctx,arg)
-#bot events
+    await rng(ctx, arg)
+
+
+# bot events
 @bot.event
 async def on_message(message):
     try:
@@ -196,15 +214,17 @@ async def on_message(message):
 async def on_command_error(ctx, error):
     if isinstance(error, discord.ext.commands.errors.CommandNotFound):
         await ctx.send("Bob挠了挠头.jpg")
+
+
 @create_event.error
 async def on_command_error(ctx, error):
     if isinstance(error, discord.ext.commands.errors.MissingRequiredArgument):
-        await ctx.send("Bob表示你的活动有点问题。\n +event title description time people_limit(int)",delete_after=15)
+        await ctx.send("Bob表示你的活动有点问题。\n +event title description time people_limit(int)", delete_after=15)
+
+
 @bot.event
 async def on_ready():
     print("**{0.user.name}** 踩着七彩祥云来取你狗命了".format(bot))
-
-
 
 
 bot.run(TOKEN)
