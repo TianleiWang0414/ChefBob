@@ -4,18 +4,120 @@ from dotenv import load_dotenv
 import discord
 import utils
 from discord.ext import commands
+import datetime as dt
+import json
+import aiofiles
+import asyncio
 
 intents = discord.Intents.default()
 intents.members = True
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 bot = commands.Bot(command_prefix="+", intents=intents)
-
-
+job_list = ['gbb','dnc','rep','drk','sch','whm','sge','rdm','war','sam','drg','mok','smn','nin',
+            'brd','pld','mch','blm','ast']
 
 
 
 #bot commands
+@bot.command(name="event")
+async def create_event(ctx, title, description, time, limit_people):
+    channel = ctx.message.channel.name
+    if channel != 'events':
+        await ctx.send(':no_entry:Please use event command under **events** channel.',delete_after=5)
+        return
+    try:
+        date_time_obj = dt.datetime.strptime(time, '%Y/%m/%d')
+    except Exception as e:
+        print(e)
+        await ctx.send(e)
+        return
+    async with aiofiles.open('event.json') as f:
+        contents = await f.read()
+        #print(contents)
+    json_file = json.loads(contents)
+
+    event =  utils.form_event(title,description,time)
+    message = await ctx.send(event)
+
+
+
+
+
+    json_file[(message.id)] = {'members': [],'role':[],'title':title,'desc':description,'time':time, 'limit':limit_people}
+
+    async with aiofiles.open('event.json',mode= 'w') as f:
+        str = json.dumps(json_file)
+        print(str)
+        await f.write(str)
+    print('event invoked')
+def role_string(member:list,role:list)->str:
+    role_str = ""
+
+    for i in range(len(member)):
+        emoji = discord.utils.get(bot.emojis, name=role[i])
+        role_str +="%s %s\n" %(member[i],emoji)
+    return role_str
+@bot.event
+async def on_reaction_add(reaction,user):
+    channel = reaction.message.channel
+    message =  reaction.message
+    emoji =reaction.emoji
+    print(message)
+    async with aiofiles.open('event.json') as f:
+        contents = await f.read()
+    json_file = json.loads(contents)
+    #print(type(message.id))
+    if user.name not in json_file[str(message.id)]['members'] and \
+            len(json_file[str(message.id)]['members']) < int(json_file[str(message.id)]['limit']):
+        json_file[str(message.id)]['members'].append(user.name)
+        try:
+            if emoji.name not in job_list:
+                return
+        except:
+            return
+
+        json_file[str(message.id)]['role'].append(emoji.name)
+        new_str = utils.form_event(json_file[str(message.id)]['title'],
+                                   json_file[str(message.id)]['desc'],
+                                   json_file[str(message.id)]['time']) + \
+                  role_string(json_file[str(message.id)]['members'],
+                            json_file[str(message.id)]['role'])
+        await message.edit(content = new_str)
+    else:
+        error = '<@%s>  :no_entry:\nPossible cause:\n1. Party full\n2. Already in this party'%(user.id)
+        await message.channel.send(error,delete_after=15)
+    print(json_file)
+    async with aiofiles.open('event.json',mode= 'w') as f:
+        new_str = json.dumps(json_file)
+        await f.write(new_str)
+@bot.event
+async def on_reaction_remove(reaction,user):
+    channel = reaction.message.channel
+    message = reaction.message
+    async with aiofiles.open('event.json') as f:
+        contents = await f.read()
+    json_file = json.loads(contents)
+    #print(type(message.id))
+    try:
+
+        index = json_file[str(message.id)]['members'].index(user.name)
+        if json_file[str(message.id)]['role'][index] != reaction.emoji.name:
+            return
+        json_file[str(message.id)]['members'].remove(user.name)
+        json_file[str(message.id)]['role'].pop(index)
+        new_str = utils.form_event(json_file[str(message.id)]['title'],
+                                   json_file[str(message.id)]['desc'],
+                                   json_file[str(message.id)]['time']) + \
+                  role_string(json_file[str(message.id)]['members'],
+                              json_file[str(message.id)]['role'])
+        await message.edit(content=new_str)
+    except:
+        pass
+    print(json_file)
+    async with aiofiles.open('event.json',mode= 'w') as f:
+        new_str = json.dumps(json_file)
+        await f.write(new_str)
 @bot.command(name="唱")
 async def sing(ctx):
     print("sing command invoked")
@@ -94,9 +196,15 @@ async def on_message(message):
 async def on_command_error(ctx, error):
     if isinstance(error, discord.ext.commands.errors.CommandNotFound):
         await ctx.send("Bob挠了挠头.jpg")
-    else:
-        print(error)
+@create_event.error
+async def on_command_error(ctx, error):
+    if isinstance(error, discord.ext.commands.errors.MissingRequiredArgument):
+        await ctx.send("Bob表示你的活动有点问题。\n +event title description time people_limit(int)",delete_after=15)
 @bot.event
 async def on_ready():
-    print("**{0.user.name}** 踩着七彩祥云来去你狗命了".format(bot))
+    print("**{0.user.name}** 踩着七彩祥云来取你狗命了".format(bot))
+
+
+
+
 bot.run(TOKEN)
