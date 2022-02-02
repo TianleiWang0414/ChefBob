@@ -23,7 +23,7 @@ job_list = ['gbb', 'dnc', 'rep', 'drk', 'sch', 'whm', 'sge', 'rdm', 'war', 'sam'
 # bot commands
 @bot.command(name="event")
 async def create_event(ctx, title, description, time, limit_people):
-    lock.acquire()
+
     channel = ctx.message.channel.name
     if channel != 'events':
         await ctx.send(':no_entry:Please use event command under **events** channel.', delete_after=5)
@@ -34,45 +34,54 @@ async def create_event(ctx, title, description, time, limit_people):
         print(e)
         await ctx.send(e)
         return
+    lock.acquire()
     async with aiofiles.open('event.json') as f:
         contents = await f.read()
         # print(contents)
+    lock.release()
     json_file = json.loads(contents)
-
+    #print(ctx.message.author.id)
     event = utils.form_event(title, description, time)
     message = await ctx.send(event)
 
-    json_file[(message.id)] = {'members': [], 'role': [], 'title': title, 'desc': description, 'time': time,
-                               'limit': limit_people}
+    json_file[message.id] = {'members': [], 'role': [], 'title': title, 'desc': description, 'time': time,
+                               'limit': limit_people,'owner':ctx.message.author.id}
 
-    async with aiofiles.open('event.json', mode='w') as f:
-        str = json.dumps(json_file)
-        print(str)
-        await f.write(str)
+    lock.acquire()
+    await utils.json_write(json_file)
     print('event invoked')
     lock.release()
 
 
-def role_string(member: list, role: list) -> str:
-    role_str = ""
-
-    for i in range(len(member)):
-        emoji = discord.utils.get(bot.emojis, name=role[i])
-        role_str += "%s %s\n" % (member[i], emoji)
-    return role_str
-
 
 @bot.event
 async def on_reaction_add(reaction, user):
-    lock.acquire()
-    channel = reaction.message.channel
+
     message = reaction.message
     emoji = reaction.emoji
-    print(message)
+
+    lock.acquire()
     async with aiofiles.open('event.json') as f:
         contents = await f.read()
     json_file = json.loads(contents)
+    lock.release()
     # print(type(message.id))
+    # print(emoji.name)
+    # print(user.id)
+    if (emoji.name == 'yes' or emoji.name == 'no') and user.id == json_file[str(message.id)]['owner']:
+        start_str =":white_check_mark: <@%s>'s %s is finished, GG wp everyone!"
+        if emoji.name == 'no':
+            start_str = ":no_entry: <@%s>'s %s event is now closed"
+        finish = start_str % (
+        json_file[str(message.id)]['owner'], json_file[str(message.id)]['title'])
+        await message.channel.send(finish)
+        json_file.pop(str(message.id))
+        print(json_file)
+        lock.acquire()
+        await utils.json_write(json_file)
+        lock.release()
+        return
+
 
     if user.name not in json_file[str(message.id)]['members'] and \
             len(json_file[str(message.id)]['members']) < int(json_file[str(message.id)]['limit']):
@@ -84,50 +93,40 @@ async def on_reaction_add(reaction, user):
             return
 
         json_file[str(message.id)]['role'].append(emoji.name)
-        new_str = utils.form_event(json_file[str(message.id)]['title'],
-                                   json_file[str(message.id)]['desc'],
-                                   json_file[str(message.id)]['time']) + \
-                  role_string(json_file[str(message.id)]['members'],
-                              json_file[str(message.id)]['role'])
+        new_str = utils.update_event(json_file,message,bot)
         await message.edit(content=new_str)
     else:
         error = '<@%s>  :no_entry:\nPossible cause:\n1. Party full\n2. Already in this party' % (user.id)
         await message.channel.send(error, delete_after=15)
     print(json_file)
-    async with aiofiles.open('event.json', mode='w') as f:
-        new_str = json.dumps(json_file)
-        await f.write(new_str)
+    lock.acquire()
+    await utils.json_write(json_file)
     lock.release()
 
 
 @bot.event
 async def on_reaction_remove(reaction, user):
     lock.acquire()
-    channel = reaction.message.channel
     message = reaction.message
+
     async with aiofiles.open('event.json') as f:
         contents = await f.read()
     json_file = json.loads(contents)
     # print(type(message.id))
     try:
-
         index = json_file[str(message.id)]['members'].index(user.name)
         if json_file[str(message.id)]['role'][index] != reaction.emoji.name:
             return
         json_file[str(message.id)]['members'].remove(user.name)
         json_file[str(message.id)]['role'].pop(index)
-        new_str = utils.form_event(json_file[str(message.id)]['title'],
-                                   json_file[str(message.id)]['desc'],
-                                   json_file[str(message.id)]['time']) + \
-                  role_string(json_file[str(message.id)]['members'],
-                              json_file[str(message.id)]['role'])
+        new_str = utils.update_event(json_file,message,bot)
         await message.edit(content=new_str)
     except:
         pass
+
     print(json_file)
-    async with aiofiles.open('event.json', mode='w') as f:
-        new_str = json.dumps(json_file)
-        await f.write(new_str)
+
+    await utils.json_write(json_file)
     lock.release()
 
 
